@@ -211,7 +211,6 @@ type registryRoundtripper struct {
 
 func (rrt *registryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	log.Printf("request received. url=%s", req.URL)
-	log.Printf("request received. auth=%s", rrt.auth.AuthHeader())
 
 	if rrt.auth != nil {
 		req.Header.Set("Authorization", rrt.auth.AuthHeader())
