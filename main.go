@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    https://www.apache.org/licenses/LICENSE-2.0
+	https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,8 +34,8 @@ const (
 )
 
 var (
-	re                 = regexp.MustCompile(`^/v2/`)
-	realm              = regexp.MustCompile(`realm="(.*?)"`)
+	re    = regexp.MustCompile(`^/v2/`)
+	realm = regexp.MustCompile(`realm="(.*?)"`)
 )
 
 type myContextKey string
@@ -52,16 +52,20 @@ func main() {
 	if port == "" {
 		log.Fatal("PORT environment variable not specified")
 	}
+	fmt.Println("HOST: ", host)
+	fmt.Println("PORT: ", port)
 	browserRedirects := os.Getenv("DISABLE_BROWSER_REDIRECTS") == ""
 
 	registryHost := os.Getenv("REGISTRY_HOST")
 	if registryHost == "" {
 		log.Fatal("REGISTRY_HOST environment variable not specified (example: gcr.io)")
 	}
+	fmt.Println("REGISTRY_HOST: ", registryHost)
 	repoPrefix := os.Getenv("REPO_PREFIX")
 	if repoPrefix == "" {
 		log.Fatal("REPO_PREFIX environment variable not specified")
 	}
+	fmt.Println("REPO_PREFIX: ", repoPrefix)
 
 	reg := registryConfig{
 		host:       registryHost,
@@ -82,7 +86,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("could not read key file from %s: %+v", gcpKey, err)
 		}
-		log.Printf("using specified service account json key to authenticate proxied requests")
+		log.Printf("using specified service account json key %s to authenticate proxied requests", gcpKey)
 		auth = authHeader("Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("_json_key:%s", string(b)))))
 	}
 
@@ -112,6 +116,7 @@ func main() {
 
 func discoverTokenService(registryHost string) (string, error) {
 	url := fmt.Sprintf("https://%s/v2/", registryHost)
+	log.Printf("looking for token endpoint from url: %s", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to query the registry host %s: %+v", registryHost, err)
@@ -131,6 +136,7 @@ func discoverTokenService(registryHost string) (string, error) {
 func captureHostHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		ctx := context.WithValue(req.Context(), ctxKeyOriginalHost, req.Host)
+		fmt.Printf("captured host header: %s\n", req.Host)
 		req = req.WithContext(ctx)
 		next.ServeHTTP(rw, req.WithContext(ctx))
 	})
@@ -227,7 +233,12 @@ func (rrt *registryRoundtripper) RoundTrip(req *http.Request) (*http.Response, e
 	// to download blobs. We don't want these routed to the proxy itself.
 	if locHdr := resp.Header.Get("location"); req.Method == http.MethodGet &&
 		resp.StatusCode == http.StatusFound && strings.HasPrefix(locHdr, "/") {
+		log.Printf("rewriting location header from %s to %s", locHdr, req.URL.Scheme+"://"+req.URL.Host+locHdr)
 		resp.Header.Set("location", req.URL.Scheme+"://"+req.URL.Host+locHdr)
+	} else {
+		log.Printf("not rewriting location header: %s", locHdr)
+		log.Printf("what it wouldv'e been %s", req.URL.Scheme+"://"+req.URL.Host+locHdr)
+
 	}
 
 	updateTokenEndpoint(resp, origHost)
@@ -235,12 +246,15 @@ func (rrt *registryRoundtripper) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 // updateTokenEndpoint modifies the response header like:
-//    Www-Authenticate: Bearer realm="https://auth.docker.io/token",service="registry.docker.io"
+//
+//	Www-Authenticate: Bearer realm="https://auth.docker.io/token",service="registry.docker.io"
+//
 // to point to the https://host/token endpoint to force using local token
 // endpoint proxy.
 func updateTokenEndpoint(resp *http.Response, host string) {
 	v := resp.Header.Get("www-authenticate")
 	if v == "" {
+		log.Printf("no www-authenticate header found in response")
 		return
 	}
 	cur := fmt.Sprintf("https://%s/_token", host)
